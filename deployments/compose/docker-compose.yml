@@ -1,0 +1,105 @@
+services:
+  gatekeeper:
+    build: 
+      context: ../../
+      dockerfile: deployments/docker/Dockerfile
+    
+    container_name: gatekeeper
+    env_file:
+      - ../../.env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - gatekeeper
+    healthcheck:
+      test: ["CMD", "curl", "-I", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+  
+  redis:
+    image: redis:7-alpine
+    container_name: gatekeeper-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - gatekeeper
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+  
+  nginx:
+    image: nginx:stable-alpine
+    container_name: gatekeeper-nginx
+    restart: unless-stopped
+    ports:
+      - "8880:80"
+      - "4443:443"
+    volumes:
+      - "../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro"
+    depends_on:
+      - gatekeeper
+    networks:
+      - gatekeeper
+
+  prometheus:
+    image: prom/prometheus:main-distroless
+    container_name: gatekeeper-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - "./prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+    networks:
+      - gatekeeper
+  
+  grafana:
+    image: grafana/grafana:main-distroless
+    container_name: gatekeeper-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - gatekeeper
+  
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: loki
+    command: -config.file=/etc/loki/config.yml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/config.yml
+    networks:
+      - gatekeeper
+  
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: promtail
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/log:/var/log
+      - ./promtail-config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - gatekeeper
+
+networks:
+  gatekeeper:
+    driver: bridge
+
+volumes:
+  redis_data:
+  grafana_data:
+  loki_data:
+  
